@@ -61,7 +61,6 @@ if uploaded_files:
     df_list = [parse_rotaexata(f) for f in uploaded_files]
     df_raw = pd.concat(df_list, ignore_index=True)
     
-    # Recalcula colunas chave de forma independente
     df_raw['Km_Calculado'] = df_raw['Km final'] - df_raw['Km inicial']
     df_raw['KmL_Real_Abastecido'] = df_raw['Km_Calculado'] / df_raw['Litros abastecidos']
     df_raw['Custo_Km_Real'] = df_raw['Custo total'] / df_raw['Km_Calculado']
@@ -83,7 +82,6 @@ if uploaded_files:
             key="tanque_editor"
         )
     
-    # Aplica capacidade definida
     def get_cap(row):
         mod = row['Modelo']
         cap = row['Capacidade Tanque (L)']
@@ -95,7 +93,7 @@ if uploaded_files:
     mapa_tanques = dict(zip(df_edited['Placa'], df_edited['Capacidade_Ajustada']))
     df_raw['Capacidade_Tanque_Real'] = df_raw['Placa'].map(mapa_tanques).fillna(50.0)
 
-    # --- REGRAS DE SANITIZAÇÃO (CLASSIFICAÇÃO DE MOTIVOS) ---
+    # --- REGRAS DE SANITIZAÇÃO ---
     def diagnosticar_registro(row):
         motivos = []
         if pd.isna(row['Km_Calculado']) or row['Km_Calculado'] <= 0:
@@ -119,10 +117,9 @@ if uploaded_files:
     df_validos = df_raw[df_raw['Status_Auditoria'] == "VÁLIDO"].copy()
     df_invalidos = df_raw[df_raw['Status_Auditoria'] != "VÁLIDO"].copy()
 
-    # Define o dataset de trabalho de acordo com o Toggle
     df_work = df_validos if usar_sanitizacao else df_raw.copy()
 
-    # --- INDICADORES EXECUTIVOS E MARGEM DE ERRO ---
+    # --- INDICADORES EXECUTIVOS ---
     st.subheader("📌 Indicadores Consolidados da Frota")
     
     n_amostras = len(df_work)
@@ -130,11 +127,8 @@ if uploaded_files:
     km_total = df_work['Km_Calculado'].sum()
     litros_totais = df_work['Litros abastecidos'].sum()
     
-    # Cálculos Estatísticos
     media_kml = df_work['KmL_Real_Abastecido'].mean()
     std_kml = df_work['KmL_Real_Abastecido'].std()
-    
-    # Margem de Erro (Intervalo de Confiança 95%)
     margem_erro_kml = 1.96 * (std_kml / np.sqrt(n_amostras)) if n_amostras > 0 else 0
     
     media_custo_km = custo_total / km_total if km_total > 0 else 0
@@ -148,7 +142,6 @@ if uploaded_files:
     k4.metric("Consumo Médio Real", f"{media_kml:.2f} km/L", delta=f"± {margem_erro_kml:.2f} km/L (Margem)", delta_color="normal")
     k5.metric("Custo Médio / Km", f"R$ {media_custo_km:.2f}", delta=f"± R$ {margem_erro_custo_km:.2f} / km", delta_color="normal")
 
-    # --- PAINEL DE CONFIABILIDADE E DESVIO PADRÃO ---
     st.markdown("---")
     c_est1, c_est2, c_est3 = st.columns([1, 1, 1])
     
@@ -166,13 +159,12 @@ if uploaded_files:
                        f"* **Registros Válidos:** `{len(df_validos)}` ({len(df_validos)/len(df_raw)*100:.1f}%)\n"
                        f"* **Inconsistências Excluídas:** `{len(df_invalidos)}` ({len(df_invalidos)/len(df_raw)*100:.1f}%)")
         else:
-            st.warning("⚠️ **Modo Dados Brutos Ativo:** Os gráficos exibem todos os registros sem filtro de erro.")
+            st.warning("⚠️ **Modo Dados Brutos Ativo:** Exibindo registros sem tratamento.")
 
     st.markdown("---")
 
     # --- GRÁFICOS ---
     col_l, col_r = st.columns(2)
-    
     with col_l:
         st.subheader("💰 Custo Total por Veículo (Placa)")
         cost_p = df_work.groupby('Placa')['Custo total'].sum().reset_index().sort_values(by='Custo total', ascending=False)
@@ -187,10 +179,9 @@ if uploaded_files:
         fig_avg = px.bar(avg_p, x='Placa', y='Média km/L', color='Média km/L', color_continuous_scale='Greens', text_auto='.2f')
         st.plotly_chart(fig_avg, use_container_width=True)
 
-    # --- AUDITORIA DE ANOMALIAS EXPURGADAS ---
+    # --- AUDITORIA DE ANOMALIAS ---
     st.markdown("---")
     st.subheader("🔍 Painel de Auditoria e Diagnóstico de Erros")
-    
     if not df_invalidos.empty:
         st.error(f"⚠️ Foram identificados {len(df_invalidos)} lançamentos incorretos/atípicos nos relatórios:")
         st.dataframe(
@@ -198,13 +189,68 @@ if uploaded_files:
             column_config={
                 "Km_Calculado": st.column_config.NumberColumn("Km Rodado", format="%.0f km"),
                 "KmL_Real_Abastecido": st.column_config.NumberColumn("Média Calculada", format="%.1f km/L"),
-                "Status_Auditoria": st.column_config.TextColumn("Motivo do Invalidação")
+                "Status_Auditoria": st.column_config.TextColumn("Motivo da Invalidação")
             },
             hide_index=True,
             use_container_width=True
         )
-    else:
-        st.success("✅ Nenhum registro incorreto identificado nos relatórios importados.")
+
+    # --- NOVO MÓDULO: GERADOR DE RELATÓRIO EXECUTIVO ---
+    st.markdown("---")
+    st.subheader("📝 Gerador de Relatório Executivo para a Diretoria")
+    
+    if st.button("📄 Gerar Sumário Executivo do Período"):
+        top_veiculo_custo = cost_p.iloc[0]['Placa'] if not cost_p.empty else "N/A"
+        top_veiculo_valor = cost_p.iloc[0]['Custo total'] if not cost_p.empty else 0.0
+        
+        texto_relatorio = f"""========================================================================
+RELATÓRIO EXECUTIVO DE AUDITORIA E DESEMPENHO DA FROTA
+========================================================================
+
+1. RESUMO DOS INDICADORES CONSOLIDADOS
+------------------------------------------------------------------------
+* Total de Registros Analisados: {len(df_raw)} lançamentos
+* Registros Validados (Sanitizados): {len(df_validos)} ({len(df_validos)/len(df_raw)*100:.1f}%)
+* Registros com Inconsistências: {len(df_invalidos)} ({len(df_invalidos)/len(df_raw)*100:.1f}%)
+
+* Investimento Total em Combustível (Válido): R$ {custo_total:,.2f}
+* Quilometragem Total Efecitivamente Rodada: {km_total:,.0f} km
+* Volume Total de Combustível Consumido: {litros_totais:,.1f} Litros
+
+2. ANÁLISE DE EFICIÊNCIA E MARGEM DE ERRO
+------------------------------------------------------------------------
+* Média Sanitizada de Consumo: {media_kml:.2f} km/L
+* Desvio Padrão (Variabilidade): {std_kml:.2f} km/L
+* Intervalo de Confiança Estatística (95%): [{media_kml - margem_erro_kml:.2f} a {media_kml + margem_erro_kml:.2f}] km/L
+
+* Custo Médio por Quilômetro Rodado: R$ {media_custo_km:.2f} / km
+* Intervalo do Custo/Km (95%): [R$ {max(0, media_custo_km - margem_erro_custo_km):.2f} a R$ {media_custo_km + margem_erro_custo_km:.2f}] / km
+
+3. DESTAQUES DA OPERAÇÃO
+------------------------------------------------------------------------
+* Maior Custo Acumulado no Período: Veículo {top_veiculo_custo} (R$ {top_veiculo_valor:,.2f})
+* Custo Impactado por Lançamentos Incorretos: R$ {df_invalidos['Custo total'].sum():,.2f}
+
+4. DIAGNÓSTICO DE AUDITORIA E PLANO DE AÇÃO
+------------------------------------------------------------------------
+Foram detectadas {len(df_invalidos)} anomalias operacionais derivadas de:
+  a) Digitação incorreta do odômetro inicial/final pelo condutor.
+  b) Volume abastecido divergente da capacidade física do tanque.
+  c) Lançamentos isolados com preço por litro atípico.
+
+Recomenda-se:
+  1) Orientação das equipes operacionais sobre a digitação correta do odômetro.
+  2) Ajuste dos dados incorretos apontados na aba de auditoria direto no portal RotaExata.
+========================================================================
+"""
+        st.text_area("Pré-visualização do Relatório Gerado:", value=texto_relatorio, height=350)
+        
+        st.download_button(
+            label="💾 Baixar Relatório Executivo (.txt)",
+            data=texto_relatorio,
+            file_name="Relatorio_Executivo_Frota.txt",
+            mime="text/plain"
+        )
 
 else:
-    st.info("👈 Envie os relatórios do RotaExata na barra lateral esquerda para processar a análise com sanitização estatística.")
+    st.info("👈 Envie os relatórios do RotaExata na barra lateral para iniciar o processamento.")
