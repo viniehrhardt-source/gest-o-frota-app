@@ -19,7 +19,7 @@ modulo = st.sidebar.radio(
 # ==============================================================================
 if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
     st.title("⏱️ Análise de Veículos Parados com Motor Ligado (Idling)")
-    st.caption("Diagnóstico de combustível desperdiçado, evolução do hábito dos motoristas mês a mês e auditoria do RotaExata")
+    st.caption("Diagnóstico completo: desperdício financeiro, ranking de infratores, evolução temporal e análise de horários")
 
     st.sidebar.markdown("---")
     st.sidebar.header("📁 Importar Relatórios")
@@ -36,7 +36,7 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
     consumo_lh = st.sidebar.number_input("Consumo Parado em Marcha Lenta (L/h)", value=1.20, step=0.10, format="%.2f")
     
     st.sidebar.markdown("---")
-    limite_minutos = st.sidebar.slider("Limiar de Duração para Alerta de Parada (min)", min_value=5, max_value=60, value=15, step=5)
+    limite_minutos = st.sidebar.slider("Limiar para Alerta de Parada Crítica (min)", min_value=5, max_value=60, value=15, step=5)
 
     def parse_pdf_parado(file):
         reader = pypdf.PdfReader(file)
@@ -157,7 +157,6 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
         tot_litros = df_p_filt['Litros_Desperdiçados'].sum()
         tot_custo = df_p_filt['Custo_Desperdicio'].sum()
         
-        # Ocorrências Acima do Limiar (ex: > 15 min)
         df_limiar = df_p_filt[df_p_filt['Minutos_Parado'] >= limite_minutos]
         tot_limiar = len(df_limiar)
         perc_limiar = (tot_limiar / tot_ocorrencias * 100) if tot_ocorrencias > 0 else 0
@@ -170,8 +169,8 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
 
         st.markdown("---")
 
-        # --- NOVO QUADRO: REINCIDÊNCIA DE PARADAS > 15 MIN POR MOTORISTA ---
-        st.subheader(f"🚨 Quadro de Ocorrências de Paradas Críticas (≥ {limite_minutos} minutos) por Motorista")
+        # --- QUADRO: REINCIDÊNCIA DE PARADAS CRÍTICAS (>= LIMIAR) POR MOTORISTA ---
+        st.subheader(f"🚨 Quadro de Paradas Críticas (≥ {limite_minutos} minutos) por Motorista")
         
         q_agg = df_limiar.groupby('Motorista').agg(
             Qtd_Paradas_Criticas=('Placa', 'count'),
@@ -181,7 +180,6 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
         ).reset_index().sort_values(by='Qtd_Paradas_Criticas', ascending=False)
         
         c_q1, c_q2 = st.columns([1.2, 1])
-        
         with c_q1:
             st.dataframe(
                 q_agg,
@@ -248,6 +246,25 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
                 use_container_width=True
             )
 
+        st.markdown("---")
+
+        # --- GRÁFICOS COMPLEMENTARES ANTERIORES (MANTIDOS INTEGRALMENTE) ---
+        st.subheader("📊 Análise Geral de Ocorrências e Horários")
+        col_g1, col_g2 = st.columns(2)
+        
+        with col_g1:
+            st.markdown("##### Top Motoristas por Tempo Total Parado e Ligado (Geral)")
+            m_agg = df_p_filt.groupby('Motorista').agg({'Horas_Parado': 'sum', 'Custo_Desperdicio': 'sum', 'Placa': 'count'}).reset_index()
+            m_agg = m_agg.sort_values(by='Horas_Parado', ascending=False)
+            fig_m = px.bar(m_agg.head(10), x='Motorista', y='Horas_Parado', text_auto='.1f', color='Custo_Desperdicio', color_continuous_scale='Reds', labels={'Horas_Parado': 'Horas Parado', 'Custo_Desperdicio': 'Custo (R$)'})
+            st.plotly_chart(fig_m, use_container_width=True)
+
+        with col_g2:
+            st.markdown("##### Concentração das Ocorrências por Horário do Dia (0h-23h)")
+            h_agg = df_p_filt.groupby('Hora_Inicio')['Placa'].count().reset_index()
+            fig_h = px.bar(h_agg, x='Hora_Inicio', y='Placa', labels={'Hora_Inicio': 'Hora do Dia (0h-23h)', 'Placa': 'Nº Ocorrências'}, text_auto=True)
+            st.plotly_chart(fig_h, use_container_width=True)
+
         # --- TABELA DE PARADAS CRÍTICAS DETALHADAS ---
         st.markdown("---")
         st.subheader(f"🚨 Lista Detalhada de Paradas Longas (≥ {limite_minutos} minutos)")
@@ -296,7 +313,7 @@ RELATÓRIO DE AUDITORIA: PARADAS CRÍTICAS (≥ {limite_minutos} MIN) E REINCID�
         st.info("👈 Faça o upload dos relatórios `.pdf` ou `.xlsx` do RotaExata na barra lateral para carregar as análises.")
 
 # ==============================================================================
-# MÓDULO 2: ABASTECIMENTO E CUSTOS DE COMBUSTÍVEL
+# MÓDULO 2: ABASTECIMENTO E CUSTOS DE COMBUSTÍVEL (INTEGRALMENTE MANTIDO)
 # ==============================================================================
 else:
     st.title("⛽ Gestão de Frota - Relatório de Abastecimento e Custos")
