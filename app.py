@@ -27,33 +27,36 @@ def padronizar_nome_motorista(nome):
     if s in ["DESCONHECIDO", "UNKNOWN", "NAN", "NONE", "", "NULL"]:
         return "DESCONHECIDO"
         
-    MOTORES_OFICIAIS = [
-        "YAN WILKER SOUZA DE QUEIROZ",
-        "FRANCISCO HUGO DA SILVA",
-        "JHONATHAN HENRYQUE RODRIGUES",
-        "PAULO APARECIDO DA SILVA",
-        "NILTON CARLOS DINIZ DA SILVA",
-        "DANIEL DA SILVA PEREIRA",
-        "LUCAS DANIEL DE SOUSA ANDRADE",
-        "ANTONIO GABRIEL SOARES",
-        "ISRAEL GOMES DO NASCIMENTO",
-        "ALAN CARLOS SANTOS SOUSA",
-        "RUAN CARVALHO MARTINS",
-        "ISMAEL SOUZA DO NASCIMENTO",
-        "JEFFERSON MONTALVAO BANKER",
-        "HELIAN ABREU SOUSA",
-        "LUCAS SOARES PAIVA COUTINHO",
-        "MARCOS VENICIO DE SOUZA SILVA",
-        "CRISTHIAN BATISTA RIBEIRO",
-        "FELIX SOUZA DUARTE",
-        "JOÃO VITOR FERREIRA DA SILVA",
-        "GUILHERME PEREIRA DA ROCHA",
-        "LUIZ FERNANDO DOS REIS OLIVEIRA",
-        "LUIZ FERNANDO GUSMÃO BARBOSA",
-        "RALPH SOUZA E SILVA",
-        "ALEX ALVES BARBOSA",
-        "ITALO ROMULO BATISTA DA SILVA PENALVA"
-    ]
+    # Mapeamento do nome oficial completo para a versão curta desejada (2 nomes)
+    MOTORES_CURTOS = {
+        "YAN WILKER SOUZA DE QUEIROZ": "YAN WILKER",
+        "FRANCISCO HUGO DA SILVA": "FRANCISCO HUGO",
+        "JHONATHAN HENRYQUE RODRIGUES": "JHONATHAN HENRYQUE",
+        "PAULO APARECIDO DA SILVA": "PAULO APARECIDO",
+        "NILTON CARLOS DINIZ DA SILVA": "NILTON CARLOS",
+        "DANIEL DA SILVA PEREIRA": "DANIEL SILVA", # Preposição 'DA' ignorada na exibição
+        "LUCAS DANIEL DE SOUSA ANDRADE": "LUCAS DANIEL",
+        "ANTONIO GABRIEL SOARES": "ANTONIO GABRIEL",
+        "ISRAEL GOMES DO NASCIMENTO": "ISRAEL GOMES",
+        "ALAN CARLOS SANTOS SOUSA": "ALAN CARLOS",
+        "RUAN CARVALHO MARTINS": "RUAN CARVALHO",
+        "ISMAEL SOUZA DO NASCIMENTO": "ISMAEL SOUZA",
+        "JEFFERSON MONTALVAO BANKER": "JEFFERSON MONTALVAO",
+        "HELIAN ABREU SOUSA": "HELIAN ABREU",
+        "LUCAS SOARES PAIVA COUTINHO": "LUCAS SOARES",
+        "MARCOS VENICIO DE SOUZA SILVA": "MARCOS VENICIO",
+        "CRISTHIAN BATISTA RIBEIRO": "CRISTHIAN BATISTA",
+        "FELIX SOUZA DUARTE": "FELIX SOUZA",
+        "JOÃO VITOR FERREIRA DA SILVA": "JOÃO VITOR",
+        "GUILHERME PEREIRA DA ROCHA": "GUILHERME PEREIRA",
+        "LUIZ FERNANDO DOS REIS OLIVEIRA": "LUIZ REIS",     # Evita colisão de nomes
+        "LUIZ FERNANDO GUSMÃO BARBOSA": "LUIZ GUSMÃO",       # Evita colisão de nomes
+        "RALPH SOUZA E SILVA": "RALPH SOUZA",
+        "ALEX ALVES BARBOSA": "ALEX ALVES",
+        "ITALO ROMULO BATISTA DA SILVA PENALVA": "ITALO ROMULO"
+    }
+    
+    MOTORES_OFICIAIS = list(MOTORES_CURTOS.keys())
     
     alias_map = {
         "YAN WILKER": "YAN WILKER SOUZA DE QUEIROZ",
@@ -79,25 +82,36 @@ def padronizar_nome_motorista(nome):
     s_clean = remover_acentos(s)
     alias_map_clean = {remover_acentos(k): v for k, v in alias_map.items()}
     
+    nome_encontrado = s # Fallback inicial
+    
     # 1. Busca por equivalência direta de Alias (com e sem acento)
     if s in alias_map:
-        return alias_map[s]
-    if s_clean in alias_map_clean:
-        return alias_map_clean[s_clean]
-        
-    # 2. Busca e comparação com a lista oficial
-    for oficial in MOTORES_OFICIAIS:
-        of_clean = remover_acentos(oficial)
-        
-        # Correspondência exata independente de acentuação
-        if s == oficial or s_clean == of_clean:
-            return oficial
+        nome_encontrado = alias_map[s]
+    elif s_clean in alias_map_clean:
+        nome_encontrado = alias_map_clean[s_clean]
+    else:
+        # 2. Busca e comparação com a lista oficial para capturar truncamentos
+        for oficial in MOTORES_OFICIAIS:
+            of_clean = remover_acentos(oficial)
             
-        # Tratamento de truncamento: verifica se um é prefixo do outro
-        if len(s_clean) >= 5 and (of_clean.startswith(s_clean) or s_clean.startswith(of_clean)):
-            return oficial
-            
-    return s
+            if s == oficial or s_clean == of_clean:
+                nome_encontrado = oficial
+                break
+                
+            if len(s_clean) >= 5 and (of_clean.startswith(s_clean) or s_clean.startswith(of_clean)):
+                nome_encontrado = oficial
+                break
+                
+    # 3. Retorna a versão curta se o nome foi mapeado na lista oficial
+    if nome_encontrado in MOTORES_CURTOS:
+        return MOTORES_CURTOS[nome_encontrado]
+        
+    # 4. Fallback Dinâmico: Se for um motorista novo não mapeado, extrai os 2 primeiros nomes ignorando preposições
+    partes = [p for p in nome_encontrado.split() if p not in ["DE", "DA", "DO", "DOS", "DAS", "E"]]
+    if len(partes) >= 2:
+        return f"{partes[0]} {partes[1]}"
+        
+    return nome_encontrado
 
 # --- SELEÇÃO DE MÓDULO ---
 st.sidebar.title("🎛️ Módulos de Análise")
@@ -345,7 +359,7 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
 
         st.markdown("---")
 
-        # --- GRÁFICOS COMPLEMENTARES ANTERIORES ---
+        # --- GRÁFICOS COMPLEMENTARES ---
         st.subheader("📊 Análise Geral de Ocorrências e Horários")
         col_g1, col_g2 = st.columns(2)
         
