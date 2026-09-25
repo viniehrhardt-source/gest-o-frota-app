@@ -15,16 +15,16 @@ modulo = st.sidebar.radio(
 )
 
 # ==============================================================================
-# MÓDULO 1: VEÍCULO PARADO E LIGADO
+# MÓDULO 1: VEÍCULO PARADO E LIGADO (COM EVOLUÇÃO TEMPORAL MÊS A MÊS)
 # ==============================================================================
 if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
     st.title("⏱️ Análise de Veículos Parados com Motor Ligado (Idling)")
-    st.caption("Diagnóstico de combustível desperdiçado, ranking de infratores e análise de paradas atípicas do RotaExata")
+    st.caption("Diagnóstico de combustível desperdiçado, evolução do hábito dos motoristas mês a mês e auditoria do RotaExata")
 
     st.sidebar.markdown("---")
     st.sidebar.header("📁 Importar Relatórios")
     uploaded_files_parado = st.sidebar.file_uploader(
-        "Selecione os arquivos de Paradas (.pdf ou .xlsx)", 
+        "Selecione os arquivos de Paradas de vários meses (.pdf ou .xlsx)", 
         type=["pdf", "xlsx"], 
         accept_multiple_files=True
     )
@@ -88,8 +88,7 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
                 r['Motorista'] = parts[0].strip()
                 r['Endereco'] = ('Destino' + parts[1] + ' ' + r['Endereco']).strip()
 
-        df = pd.DataFrame(records)
-        return df
+        return pd.DataFrame(records)
 
     def parse_excel_parado(file):
         df_raw = pd.read_excel(file)
@@ -130,15 +129,24 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
         df_parado['Horas_Parado'] = df_parado['Segundos_Parado'] / 3600.0
         df_parado['Litros_Desperdiçados'] = df_parado['Horas_Parado'] * consumo_lh
         df_parado['Custo_Desperdicio'] = df_parado['Litros_Desperdiçados'] * preco_litro
+        
+        df_parado['Data_DT'] = pd.to_datetime(df_parado['Data'], format='%d/%m/%Y', errors='coerce')
+        df_parado['Mes_Ano'] = df_parado['Data_DT'].dt.strftime('%Y-%m (%b)')
         df_parado['Hora_Inicio'] = pd.to_datetime(df_parado['Inicio'], format='%H:%M:%S', errors='coerce').dt.hour
 
         # --- FILTROS ---
+        st.sidebar.markdown("---")
+        st.sidebar.header("🔍 Filtros de Visualização")
         motoristas_unicos = sorted(df_parado['Motorista'].dropna().unique())
         sel_motoristas = st.sidebar.multiselect("Filtrar por Motorista", options=motoristas_unicos, default=motoristas_unicos)
-        df_p_filt = df_parado[df_parado['Motorista'].isin(sel_motoristas)].copy()
+        
+        meses_unicos = sorted(df_parado['Mes_Ano'].dropna().unique())
+        sel_meses = st.sidebar.multiselect("Filtrar por Mês/Ano", options=meses_unicos, default=meses_unicos)
+
+        df_p_filt = df_parado[(df_parado['Motorista'].isin(sel_motoristas)) & (df_parado['Mes_Ano'].isin(sel_meses))].copy()
 
         # --- KPIS ---
-        st.subheader("📌 Indicadores do Prejuízo por Carro Parado e Ligado")
+        st.subheader("📌 Indicadores Globais do Período")
         k1, k2, k3, k4, k5 = st.columns(5)
         
         tot_ocorrencias = len(df_p_filt)
@@ -155,18 +163,56 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
 
         st.markdown("---")
 
-        # --- GRÁFICOS ---
-        col_g1, col_g2 = st.columns(2)
+        # --- SEÇÃO DEDICADA: EVOLUÇÃO DO HÁBITO DOS MOTORISTAS MÊS A MÊS ---
+        st.subheader("📈 Evolução Temporal e Análise do Hábito de Marcha Lenta")
         
+        tab_evol1, tab_evol2, tab_evol3 = st.tabs(["📊 Evolução Mensal da Frota", "👤 Evolução Comparativa por Motorista", "📋 Matriz de Reincidência (Motorista x Mês)"])
+        
+        with tab_evol1:
+            st.markdown("##### Tendência Geral do Desperdício da Frota ao Longo do Tempo")
+            df_mes_agg = df_p_filt.groupby('Mes_Ano').agg({'Horas_Parado': 'sum', 'Custo_Desperdicio': 'sum', 'Placa': 'count'}).reset_index()
+            fig_mes_line = px.line(df_mes_agg, x='Mes_Ano', y='Horas_Parado', markers=True, text='Horas_Parado',
+                                   labels={'Mes_Ano': 'Mês/Ano', 'Horas_Parado': 'Horas Parado e Ligado'},
+                                   title="Evolução do Total de Horas em Marcha Lenta por Mês")
+            fig_mes_line.update_traces(texttemplate='%{text:.1f}h', textposition='top center')
+            st.plotly_chart(fig_mes_line, use_container_width=True)
+
+        with tab_evol2:
+            st.markdown("##### Acompanhamento Individual do Hábito dos Motoristas")
+            top_drivers = df_p_filt.groupby('Motorista')['Horas_Parado'].sum().nlargest(5).index.tolist()
+            sel_drivers_chart = st.multiselect("Selecione os motoristas para comparar a evolução:", options=motoristas_unicos, default=top_drivers)
+            
+            df_driver_month = df_p_filt[df_p_filt['Motorista'].isin(sel_drivers_chart)].groupby(['Mes_Ano', 'Motorista'])['Horas_Parado'].sum().reset_index()
+            fig_driver_line = px.line(df_driver_month, x='Mes_Ano', y='Horas_Parado', color='Motorista', markers=True,
+                                      labels={'Horas_Parado': 'Horas Parado e Ligado', 'Mes_Ano': 'Mês/Ano'},
+                                      title="Evolução do Tempo Parado e Ligado por Condutor")
+            st.plotly_chart(fig_driver_line, use_container_width=True)
+
+        with tab_evol3:
+            st.markdown("##### Matriz de Reincidência: Total de Horas Parado/Ligado por Mês")
+            pivot_matrix = df_p_filt.pivot_table(index='Motorista', columns='Mes_Ano', values='Horas_Parado', aggfunc='sum', fill_value=0)
+            pivot_matrix['Total Acumulado (h)'] = pivot_matrix.sum(axis=1)
+            pivot_matrix['Custo Estimado (R$)'] = pivot_matrix['Total Acumulado (h)'] * consumo_lh * preco_litro
+            pivot_matrix = pivot_matrix.sort_values(by='Total Acumulado (h)', ascending=False)
+            
+            st.dataframe(
+                pivot_matrix.style.format("{:.1f}h").format({"Custo Estimado (R$)": "R$ {:.2f}"}),
+                use_container_width=True
+            )
+
+        st.markdown("---")
+
+        # --- GRÁFICOS COMPLEMENTARES ---
+        col_g1, col_g2 = st.columns(2)
         with col_g1:
-            st.subheader("👤 Top Motoristas em Tempo Parado e Ligado")
+            st.subheader("🏆 Top Infratores do Período Selecionado")
             m_agg = df_p_filt.groupby('Motorista').agg({'Horas_Parado': 'sum', 'Custo_Desperdicio': 'sum', 'Placa': 'count'}).reset_index()
             m_agg = m_agg.sort_values(by='Horas_Parado', ascending=False)
-            fig_m = px.bar(m_agg.head(10), x='Motorista', y='Horas_Parado', text_auto='.1f', color='Custo_Desperdicio', color_continuous_scale='Reds', labels={'Horas_Parado': 'Horas Parado', 'Custo_Desperdicio': 'Custo (R$)'})
+            fig_m = px.bar(m_agg.head(10), x='Motorista', y='Horas_Parado', text_auto='.1f', color='Custo_Desperdicio', color_continuous_scale='Reds')
             st.plotly_chart(fig_m, use_container_width=True)
 
         with col_g2:
-            st.subheader("⏰ Distribuição das Ocorrências por Horário do Dia")
+            st.subheader("⏰ Concentração por Horário do Dia")
             h_agg = df_p_filt.groupby('Hora_Inicio')['Placa'].count().reset_index()
             fig_h = px.bar(h_agg, x='Hora_Inicio', y='Placa', labels={'Hora_Inicio': 'Hora do Dia (0h-23h)', 'Placa': 'Nº Ocorrências'}, text_auto=True)
             st.plotly_chart(fig_h, use_container_width=True)
@@ -179,7 +225,7 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
         if not criticas.empty:
             st.warning(f"Foram identificadas {len(criticas)} paradas com duração superior a 30 minutos contínuos com motor ligado!")
             st.dataframe(
-                criticas[['Data', 'Placa', 'Veiculo', 'Motorista', 'Inicio', 'Final', 'Tempo_Parado', 'Custo_Desperdicio', 'Endereco']],
+                criticas[['Data', 'Mes_Ano', 'Placa', 'Veiculo', 'Motorista', 'Inicio', 'Final', 'Tempo_Parado', 'Custo_Desperdicio', 'Endereco']],
                 column_config={
                     "Tempo_Parado": st.column_config.TextColumn("Tempo Parado"),
                     "Custo_Desperdicio": st.column_config.NumberColumn("Desperdício (R$)", format="R$ %.2f")
@@ -187,45 +233,42 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
                 hide_index=True,
                 use_container_width=True
             )
-        else:
-            st.success("✅ Nenhuma parada contínua superior a 30 minutos foi identificada.")
 
-        # --- GERADOR DE RELATÓRIO EXECUTIVO ---
+        # --- GERADOR DE RELATÓRIO EXECUTIVO TEMPORAL ---
         st.markdown("---")
-        st.subheader("📝 Gerador de Relatório Executivo de Idling")
-        if st.button("📄 Gerar Resumo Executivo"):
+        st.subheader("📝 Gerador de Relatório Executivo e de Evolução")
+        if st.button("📄 Gerar Resumo de Evolução Temporal"):
             top_m = m_agg.iloc[0]['Motorista'] if not m_agg.empty else "N/A"
             top_h = m_agg.iloc[0]['Horas_Parado'] if not m_agg.empty else 0
             
             relatorio_txt = f"""========================================================================
-RELATÓRIO DE AUDITORIA: VEÍCULOS PARADOS COM MOTOR LIGADO (IDLING)
+RELATÓRIO DE EVOLUÇÃO TEMPORAL: VEÍCULOS PARADOS COM MOTOR LIGADO (IDLING)
 ========================================================================
 
-1. RESUMO DOS INDICADORES CONSOLIDADOS
+1. RESUMO DOS INDICADORES CONSOLIDADOS DO PERÍODO
 ------------------------------------------------------------------------
+* Meses Analisados: {', '.join(meses_unicos)}
 * Total de Ocorrências: {tot_ocorrencias} paradas
-* Tempo Total de Motor Ligado Parado: {int(tot_horas)} horas e {int((tot_horas%1)*60)} minutos
-* Média de Duração por Ocorrência: {media_minutos:.1f} minutos por parada
+* Tempo Total em Marcha Lenta: {int(tot_horas)} horas e {int((tot_horas%1)*60)} minutos
+* Prejuízo Financeiro Acumulado: R$ {tot_custo:,.2f} ({tot_litros:,.1f} Litros)
 
-2. IMPACTO FINANCEIRO E AMBIENTAL
+2. AVALIAÇÃO DE REINCIDÊNCIA E EVOLUÇÃO DO HÁBITO
 ------------------------------------------------------------------------
-* Parâmetro do Combustível: R$ {preco_litro:.2f} / Litro
-* Taxa de Consumo em Marcha Lenta: {consumo_lh:.2f} Litros / Hora
-* Volume Total Desperdiçado: {tot_litros:,.1f} Litros de combustível
-* Prejuízo Financeiro Acumulado: R$ {tot_custo:,.2f}
-
-3. RANKING DE CONDUTORES
-------------------------------------------------------------------------
-* Maior Infrator Individual: {top_m} ({top_h:.2f} horas com motor ligado)
+* Maior Infrator Acumulado: {top_m} ({top_h:.2f} horas)
 * Paradas Críticas (>30 min contínuos): {len(criticas)} ocorrências
 
+3. RECOMENDAÇÕES PARA GESTÃO DE FROTA
+------------------------------------------------------------------------
+  1) Analisar a Matriz de Reincidência para identificar condutores recorrentes.
+  2) Realizar feedback individual focado nos motoristas com curvas crescentes de marcha lenta.
+  3) Acompanhar mensalmente para medir a efetividade das ações educativas.
 ========================================================================
 """
             st.text_area("Pré-visualização do Relatório:", value=relatorio_txt, height=300)
-            st.download_button("💾 Baixar Relatório (.txt)", data=relatorio_txt, file_name="Relatorio_Carro_Parado_Ligado.txt", mime="text/plain")
+            st.download_button("💾 Baixar Relatório (.txt)", data=relatorio_txt, file_name="Relatorio_Evolucao_Carro_Parado.txt", mime="text/plain")
 
     else:
-        st.info("👈 Faça o upload dos relatórios `.pdf` ou `.xlsx` extraídos do RotaExata na barra lateral esquerda.")
+        st.info("👈 Faça o upload de um ou mais relatórios `.pdf` ou `.xlsx` do RotaExata na barra lateral para analisar a evolução mensal.")
 
 # ==============================================================================
 # MÓDULO 2: ABASTECIMENTO E CUSTOS DE COMBUSTÍVEL
