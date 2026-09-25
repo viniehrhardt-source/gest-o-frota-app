@@ -4,8 +4,16 @@ import numpy as np
 import plotly.express as px
 import re
 import pypdf
+import unicodedata
 
 st.set_page_config(page_title="Gestão de Frota - RotaExata", layout="wide", page_icon="🚗")
+
+# --- FUNÇÃO AUXILIAR DE REMOÇÃO DE ACENTOS ---
+def remover_acentos(texto):
+    if not isinstance(texto, str):
+        return ""
+    nfkd = unicodedata.normalize('NFD', texto)
+    return "".join([c for c in nfkd if unicodedata.category(c) != 'Mn'])
 
 # --- FUNÇÃO DE PADRONIZAÇÃO E LIMPEZA DE NOMES DE MOTORISTAS ---
 def padronizar_nome_motorista(nome):
@@ -16,7 +24,7 @@ def padronizar_nome_motorista(nome):
     s = re.sub(r'\s+', ' ', s)
     s = s.strip(" -_.,")
     
-    if s in ["DESCONHECIDO", "UNKNOWN", "NAN", "NONE", ""]:
+    if s in ["DESCONHECIDO", "UNKNOWN", "NAN", "NONE", "", "NULL"]:
         return "DESCONHECIDO"
         
     MOTORES_OFICIAIS = [
@@ -49,6 +57,7 @@ def padronizar_nome_motorista(nome):
     
     alias_map = {
         "YAN WILKER": "YAN WILKER SOUZA DE QUEIROZ",
+        "YAN WILKER SOUZA": "YAN WILKER SOUZA DE QUEIROZ",
         "YAN WILKER SOUZA DE": "YAN WILKER SOUZA DE QUEIROZ",
         "NILTON C": "NILTON CARLOS DINIZ DA SILVA",
         "NILTON CARLOS DINIZ": "NILTON CARLOS DINIZ DA SILVA",
@@ -64,19 +73,28 @@ def padronizar_nome_motorista(nome):
         "MARCOS VENICIO DE SOUZA": "MARCOS VENICIO DE SOUZA SILVA",
         "LUIZ FERNANDO GUSMAO": "LUIZ FERNANDO GUSMÃO BARBOSA",
         "LUIZ FERNANDO GUSMAO BARBOSA": "LUIZ FERNANDO GUSMÃO BARBOSA",
+        "LUIZ REIS": "LUIZ FERNANDO DOS REIS OLIVEIRA"
     }
     
+    s_clean = remover_acentos(s)
+    alias_map_clean = {remover_acentos(k): v for k, v in alias_map.items()}
+    
+    # 1. Busca por equivalência direta de Alias (com e sem acento)
     if s in alias_map:
         return alias_map[s]
+    if s_clean in alias_map_clean:
+        return alias_map_clean[s_clean]
         
+    # 2. Busca e comparação com a lista oficial
     for oficial in MOTORES_OFICIAIS:
-        s_clean = s.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").replace("Ã","A").replace("Õ","A").replace("Ç","C")
-        of_clean = oficial.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").replace("Ã","A").replace("Õ","A").replace("Ç","C")
+        of_clean = remover_acentos(oficial)
         
-        if s_clean == of_clean:
+        # Correspondência exata independente de acentuação
+        if s == oficial or s_clean == of_clean:
             return oficial
             
-        if (of_clean.startswith(s_clean) or s_clean.startswith(of_clean)) and len(s_clean) >= 6:
+        # Tratamento de truncamento: verifica se um é prefixo do outro
+        if len(s_clean) >= 5 and (of_clean.startswith(s_clean) or s_clean.startswith(of_clean)):
             return oficial
             
     return s
@@ -327,7 +345,7 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
 
         st.markdown("---")
 
-        # --- GRÁFICOS COMPLEMENTARES ANTERIORES (MANTIDOS INTEGRALMENTE) ---
+        # --- GRÁFICOS COMPLEMENTARES ANTERIORES ---
         st.subheader("📊 Análise Geral de Ocorrências e Horários")
         col_g1, col_g2 = st.columns(2)
         
