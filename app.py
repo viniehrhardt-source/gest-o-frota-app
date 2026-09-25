@@ -15,7 +15,7 @@ modulo = st.sidebar.radio(
 )
 
 # ==============================================================================
-# MÓDULO 1: VEÍCULO PARADO E LIGADO (COM EVOLUÇÃO TEMPORAL MÊS A MÊS)
+# MÓDULO 1: VEÍCULO PARADO E LIGADO
 # ==============================================================================
 if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
     st.title("⏱️ Análise de Veículos Parados com Motor Ligado (Idling)")
@@ -24,7 +24,7 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
     st.sidebar.markdown("---")
     st.sidebar.header("📁 Importar Relatórios")
     uploaded_files_parado = st.sidebar.file_uploader(
-        "Selecione os arquivos de Paradas de vários meses (.pdf ou .xlsx)", 
+        "Selecione os arquivos de Paradas (.pdf ou .xlsx)", 
         type=["pdf", "xlsx"], 
         accept_multiple_files=True
     )
@@ -34,6 +34,9 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
     st.sidebar.header("💸 Parâmetros de Desperdício")
     preco_litro = st.sidebar.number_input("Preço Médio do Combustível (R$/L)", value=6.60, step=0.10, format="%.2f")
     consumo_lh = st.sidebar.number_input("Consumo Parado em Marcha Lenta (L/h)", value=1.20, step=0.10, format="%.2f")
+    
+    st.sidebar.markdown("---")
+    limite_minutos = st.sidebar.slider("Limiar de Duração para Alerta de Parada (min)", min_value=5, max_value=60, value=15, step=5)
 
     def parse_pdf_parado(file):
         reader = pypdf.PdfReader(file)
@@ -153,17 +156,62 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
         tot_horas = df_p_filt['Horas_Parado'].sum()
         tot_litros = df_p_filt['Litros_Desperdiçados'].sum()
         tot_custo = df_p_filt['Custo_Desperdicio'].sum()
-        media_minutos = df_p_filt['Minutos_Parado'].mean() if tot_ocorrencias > 0 else 0
+        
+        # Ocorrências Acima do Limiar (ex: > 15 min)
+        df_limiar = df_p_filt[df_p_filt['Minutos_Parado'] >= limite_minutos]
+        tot_limiar = len(df_limiar)
+        perc_limiar = (tot_limiar / tot_ocorrencias * 100) if tot_ocorrencias > 0 else 0
 
-        k1.metric("Ocorrências Registradas", f"{tot_ocorrencias} paradas")
-        k2.metric("Tempo Total Parado Ligado", f"{int(tot_horas)}h {int((tot_horas%1)*60)}min")
-        k3.metric("Combustível Perdido", f"{tot_litros:,.1f} L")
-        k4.metric("Prejuízo Estimado", f"R$ {tot_custo:,.2f}")
-        k5.metric("Média por Parada", f"{media_minutos:.1f} min")
+        k1.metric("Ocorrências Totais", f"{tot_ocorrencias} paradas")
+        k2.metric(f"Paradas ≥ {limite_minutos} min", f"{tot_limiar} ({perc_limiar:.0f}%)")
+        k3.metric("Tempo Total Parado", f"{int(tot_horas)}h {int((tot_horas%1)*60)}min")
+        k4.metric("Combustível Perdido", f"{tot_litros:,.1f} L")
+        k5.metric("Prejuízo Estimado", f"R$ {tot_custo:,.2f}")
 
         st.markdown("---")
 
-        # --- SEÇÃO DEDICADA: EVOLUÇÃO DO HÁBITO DOS MOTORISTAS MÊS A MÊS ---
+        # --- NOVO QUADRO: REINCIDÊNCIA DE PARADAS > 15 MIN POR MOTORISTA ---
+        st.subheader(f"🚨 Quadro de Ocorrências de Paradas Críticas (≥ {limite_minutos} minutos) por Motorista")
+        
+        q_agg = df_limiar.groupby('Motorista').agg(
+            Qtd_Paradas_Criticas=('Placa', 'count'),
+            Horas_Acumuladas=('Horas_Parado', 'sum'),
+            Combustivel_Perdido_L=('Litros_Desperdiçados', 'sum'),
+            Custo_Prejuizo_RS=('Custo_Desperdicio', 'sum')
+        ).reset_index().sort_values(by='Qtd_Paradas_Criticas', ascending=False)
+        
+        c_q1, c_q2 = st.columns([1.2, 1])
+        
+        with c_q1:
+            st.dataframe(
+                q_agg,
+                column_config={
+                    "Motorista": st.column_config.TextColumn("Motorista / Condutor"),
+                    "Qtd_Paradas_Criticas": st.column_config.NumberColumn(f"Paradas ≥ {limite_minutos} min", format="%d"),
+                    "Horas_Acumuladas": st.column_config.NumberColumn("Tempo Total (Horas)", format="%.1f h"),
+                    "Combustivel_Perdido_L": st.column_config.NumberColumn("Desperdício (L)", format="%.1f L"),
+                    "Custo_Prejuizo_RS": st.column_config.NumberColumn("Prejuízo (R$)", format="R$ %.2f")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+        with c_q2:
+            fig_q = px.bar(
+                q_agg.head(10), 
+                x='Motorista', 
+                y='Qtd_Paradas_Criticas', 
+                text_auto=True,
+                title=f"Top 10 Motoristas com mais Paradas ≥ {limite_minutos} min",
+                color='Custo_Prejuizo_RS',
+                color_continuous_scale='Reds',
+                labels={'Qtd_Paradas_Criticas': 'Nº de Paradas', 'Custo_Prejuizo_RS': 'Prejuízo (R$)'}
+            )
+            st.plotly_chart(fig_q, use_container_width=True)
+
+        st.markdown("---")
+
+        # --- SEÇÃO DEDICADA: EVOLUÇÃO TEMPORAL MÊS A MÊS ---
         st.subheader("📈 Evolução Temporal e Análise do Hábito de Marcha Lenta")
         
         tab_evol1, tab_evol2, tab_evol3 = st.tabs(["📊 Evolução Mensal da Frota", "👤 Evolução Comparativa por Motorista", "📋 Matriz de Reincidência (Motorista x Mês)"])
@@ -200,30 +248,12 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
                 use_container_width=True
             )
 
+        # --- TABELA DE PARADAS CRÍTICAS DETALHADAS ---
         st.markdown("---")
-
-        # --- GRÁFICOS COMPLEMENTARES ---
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.subheader("🏆 Top Infratores do Período Selecionado")
-            m_agg = df_p_filt.groupby('Motorista').agg({'Horas_Parado': 'sum', 'Custo_Desperdicio': 'sum', 'Placa': 'count'}).reset_index()
-            m_agg = m_agg.sort_values(by='Horas_Parado', ascending=False)
-            fig_m = px.bar(m_agg.head(10), x='Motorista', y='Horas_Parado', text_auto='.1f', color='Custo_Desperdicio', color_continuous_scale='Reds')
-            st.plotly_chart(fig_m, use_container_width=True)
-
-        with col_g2:
-            st.subheader("⏰ Concentração por Horário do Dia")
-            h_agg = df_p_filt.groupby('Hora_Inicio')['Placa'].count().reset_index()
-            fig_h = px.bar(h_agg, x='Hora_Inicio', y='Placa', labels={'Hora_Inicio': 'Hora do Dia (0h-23h)', 'Placa': 'Nº Ocorrências'}, text_auto=True)
-            st.plotly_chart(fig_h, use_container_width=True)
-
-        # --- TABELA DE PARADAS CRÍTICAS ---
-        st.markdown("---")
-        st.subheader("🚨 Paradas Mais Longas / Críticas (> 30 minutos)")
-        criticas = df_p_filt[df_p_filt['Minutos_Parado'] >= 30].sort_values(by='Minutos_Parado', ascending=False)
+        st.subheader(f"🚨 Lista Detalhada de Paradas Longas (≥ {limite_minutos} minutos)")
+        criticas = df_p_filt[df_p_filt['Minutos_Parado'] >= limite_minutos].sort_values(by='Minutos_Parado', ascending=False)
         
         if not criticas.empty:
-            st.warning(f"Foram identificadas {len(criticas)} paradas com duração superior a 30 minutos contínuos com motor ligado!")
             st.dataframe(
                 criticas[['Data', 'Mes_Ano', 'Placa', 'Veiculo', 'Motorista', 'Inicio', 'Final', 'Tempo_Parado', 'Custo_Desperdicio', 'Endereco']],
                 column_config={
@@ -234,41 +264,36 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
                 use_container_width=True
             )
 
-        # --- GERADOR DE RELATÓRIO EXECUTIVO TEMPORAL ---
+        # --- GERADOR DE RELATÓRIO EXECUTIVO ---
         st.markdown("---")
         st.subheader("📝 Gerador de Relatório Executivo e de Evolução")
-        if st.button("📄 Gerar Resumo de Evolução Temporal"):
-            top_m = m_agg.iloc[0]['Motorista'] if not m_agg.empty else "N/A"
-            top_h = m_agg.iloc[0]['Horas_Parado'] if not m_agg.empty else 0
+        if st.button("📄 Gerar Resumo Executivo"):
+            top_m = q_agg.iloc[0]['Motorista'] if not q_agg.empty else "N/A"
+            top_q = q_agg.iloc[0]['Qtd_Paradas_Criticas'] if not q_agg.empty else 0
             
             relatorio_txt = f"""========================================================================
-RELATÓRIO DE EVOLUÇÃO TEMPORAL: VEÍCULOS PARADOS COM MOTOR LIGADO (IDLING)
+RELATÓRIO DE AUDITORIA: PARADAS CRÍTICAS (≥ {limite_minutos} MIN) E REINCIDÊNCIA
 ========================================================================
 
 1. RESUMO DOS INDICADORES CONSOLIDADOS DO PERÍODO
 ------------------------------------------------------------------------
 * Meses Analisados: {', '.join(meses_unicos)}
-* Total de Ocorrências: {tot_ocorrencias} paradas
+* Total de Ocorrências Gerais: {tot_ocorrencias} paradas
+* Ocorrências Críticas (≥ {limite_minutos} min): {tot_limiar} paradas ({perc_limiar:.1f}% do total)
 * Tempo Total em Marcha Lenta: {int(tot_horas)} horas e {int((tot_horas%1)*60)} minutos
 * Prejuízo Financeiro Acumulado: R$ {tot_custo:,.2f} ({tot_litros:,.1f} Litros)
 
-2. AVALIAÇÃO DE REINCIDÊNCIA E EVOLUÇÃO DO HÁBITO
+2. RANKING DE REINCIDÊNCIA POR MOTORISTA (PARADAS ≥ {limite_minutos} MIN)
 ------------------------------------------------------------------------
-* Maior Infrator Acumulado: {top_m} ({top_h:.2f} horas)
-* Paradas Críticas (>30 min contínuos): {len(criticas)} ocorrências
+* Maior Reincidente: {top_m} ({top_q} paradas críticas)
 
-3. RECOMENDAÇÕES PARA GESTÃO DE FROTA
-------------------------------------------------------------------------
-  1) Analisar a Matriz de Reincidência para identificar condutores recorrentes.
-  2) Realizar feedback individual focado nos motoristas com curvas crescentes de marcha lenta.
-  3) Acompanhar mensalmente para medir a efetividade das ações educativas.
 ========================================================================
 """
             st.text_area("Pré-visualização do Relatório:", value=relatorio_txt, height=300)
-            st.download_button("💾 Baixar Relatório (.txt)", data=relatorio_txt, file_name="Relatorio_Evolucao_Carro_Parado.txt", mime="text/plain")
+            st.download_button("💾 Baixar Relatório (.txt)", data=relatorio_txt, file_name="Relatorio_Paradas_Criticas.txt", mime="text/plain")
 
     else:
-        st.info("👈 Faça o upload de um ou mais relatórios `.pdf` ou `.xlsx` do RotaExata na barra lateral para analisar a evolução mensal.")
+        st.info("👈 Faça o upload dos relatórios `.pdf` ou `.xlsx` do RotaExata na barra lateral para carregar as análises.")
 
 # ==============================================================================
 # MÓDULO 2: ABASTECIMENTO E CUSTOS DE COMBUSTÍVEL
