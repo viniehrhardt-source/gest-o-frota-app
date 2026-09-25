@@ -7,6 +7,80 @@ import pypdf
 
 st.set_page_config(page_title="Gestão de Frota - RotaExata", layout="wide", page_icon="🚗")
 
+# --- FUNÇÃO DE PADRONIZAÇÃO E LIMPEZA DE NOMES DE MOTORISTAS ---
+def padronizar_nome_motorista(nome):
+    if not isinstance(nome, str) or not nome.strip():
+        return "DESCONHECIDO"
+        
+    s = nome.strip().upper()
+    s = re.sub(r'\s+', ' ', s)
+    s = s.strip(" -_.,")
+    
+    if s in ["DESCONHECIDO", "UNKNOWN", "NAN", "NONE", ""]:
+        return "DESCONHECIDO"
+        
+    MOTORES_OFICIAIS = [
+        "YAN WILKER SOUZA DE QUEIROZ",
+        "FRANCISCO HUGO DA SILVA",
+        "JHONATHAN HENRYQUE RODRIGUES",
+        "PAULO APARECIDO DA SILVA",
+        "NILTON CARLOS DINIZ DA SILVA",
+        "DANIEL DA SILVA PEREIRA",
+        "LUCAS DANIEL DE SOUSA ANDRADE",
+        "ANTONIO GABRIEL SOARES",
+        "ISRAEL GOMES DO NASCIMENTO",
+        "ALAN CARLOS SANTOS SOUSA",
+        "RUAN CARVALHO MARTINS",
+        "ISMAEL SOUZA DO NASCIMENTO",
+        "JEFFERSON MONTALVAO BANKER",
+        "HELIAN ABREU SOUSA",
+        "LUCAS SOARES PAIVA COUTINHO",
+        "MARCOS VENICIO DE SOUZA SILVA",
+        "CRISTHIAN BATISTA RIBEIRO",
+        "FELIX SOUZA DUARTE",
+        "JOÃO VITOR FERREIRA DA SILVA",
+        "GUILHERME PEREIRA DA ROCHA",
+        "LUIZ FERNANDO DOS REIS OLIVEIRA",
+        "LUIZ FERNANDO GUSMÃO BARBOSA",
+        "RALPH SOUZA E SILVA",
+        "ALEX ALVES BARBOSA",
+        "ITALO ROMULO BATISTA DA SILVA PENALVA"
+    ]
+    
+    alias_map = {
+        "YAN WILKER": "YAN WILKER SOUZA DE QUEIROZ",
+        "YAN WILKER SOUZA DE": "YAN WILKER SOUZA DE QUEIROZ",
+        "NILTON C": "NILTON CARLOS DINIZ DA SILVA",
+        "NILTON CARLOS DINIZ": "NILTON CARLOS DINIZ DA SILVA",
+        "NILTON CARLOS DINIZ DA": "NILTON CARLOS DINIZ DA SILVA",
+        "ANTONIO GABRIEL": "ANTONIO GABRIEL SOARES",
+        "HELIAN ABREU": "HELIAN ABREU SOUSA",
+        "JHONATHAN HENRYQUE": "JHONATHAN HENRYQUE RODRIGUES",
+        "JOAO VITOR FERREIRA DA SILVA": "JOÃO VITOR FERREIRA DA SILVA",
+        "ITALO ROMULO": "ITALO ROMULO BATISTA DA SILVA PENALVA",
+        "ITALO ROMULO BATISTA": "ITALO ROMULO BATISTA DA SILVA PENALVA",
+        "LUCAS SOARES PAIVA": "LUCAS SOARES PAIVA COUTINHO",
+        "LUCAS DANIEL DE SOUSA": "LUCAS DANIEL DE SOUSA ANDRADE",
+        "MARCOS VENICIO DE SOUZA": "MARCOS VENICIO DE SOUZA SILVA",
+        "LUIZ FERNANDO GUSMAO": "LUIZ FERNANDO GUSMÃO BARBOSA",
+        "LUIZ FERNANDO GUSMAO BARBOSA": "LUIZ FERNANDO GUSMÃO BARBOSA",
+    }
+    
+    if s in alias_map:
+        return alias_map[s]
+        
+    for oficial in MOTORES_OFICIAIS:
+        s_clean = s.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").replace("Ã","A").replace("Õ","A").replace("Ç","C")
+        of_clean = oficial.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").replace("Ã","A").replace("Õ","A").replace("Ç","C")
+        
+        if s_clean == of_clean:
+            return oficial
+            
+        if (of_clean.startswith(s_clean) or s_clean.startswith(of_clean)) and len(s_clean) >= 6:
+            return oficial
+            
+    return s
+
 # --- SELEÇÃO DE MÓDULO ---
 st.sidebar.title("🎛️ Módulos de Análise")
 modulo = st.sidebar.radio(
@@ -29,7 +103,6 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
         accept_multiple_files=True
     )
 
-    # Parâmetros de Custo de Idling
     st.sidebar.markdown("---")
     st.sidebar.header("💸 Parâmetros de Desperdício")
     preco_litro = st.sidebar.number_input("Preço Médio do Combustível (R$/L)", value=6.60, step=0.10, format="%.2f")
@@ -91,7 +164,10 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
                 r['Motorista'] = parts[0].strip()
                 r['Endereco'] = ('Destino' + parts[1] + ' ' + r['Endereco']).strip()
 
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        if not df.empty and 'Motorista' in df.columns:
+            df['Motorista'] = df['Motorista'].apply(padronizar_nome_motorista)
+        return df
 
     def parse_excel_parado(file):
         df_raw = pd.read_excel(file)
@@ -108,7 +184,10 @@ if modulo == "⏱️ Veículo Parado e Ligado (PDF/Excel)":
             df_data = df_raw.copy()
         df_data.columns = [str(c).strip() for c in df_data.columns]
         col_map = {'Veículo': 'Veiculo', 'Início': 'Inicio', 'Tempo parado': 'Tempo_Parado', 'Situação': 'Situacao', 'Cliente/Endereço': 'Endereco'}
-        return df_data.rename(columns=col_map)
+        df_clean = df_data.rename(columns=col_map)
+        if not df_clean.empty and 'Motorista' in df_clean.columns:
+            df_clean['Motorista'] = df_clean['Motorista'].apply(padronizar_nome_motorista)
+        return df_clean
 
     if uploaded_files_parado:
         df_parado_list = []
@@ -313,7 +392,7 @@ RELATÓRIO DE AUDITORIA: PARADAS CRÍTICAS (≥ {limite_minutos} MIN) E REINCID�
         st.info("👈 Faça o upload dos relatórios `.pdf` ou `.xlsx` do RotaExata na barra lateral para carregar as análises.")
 
 # ==============================================================================
-# MÓDULO 2: ABASTECIMENTO E CUSTOS DE COMBUSTÍVEL (INTEGRALMENTE MANTIDO)
+# MÓDULO 2: ABASTECIMENTO E CUSTOS DE COMBUSTÍVEL
 # ==============================================================================
 else:
     st.title("⛽ Gestão de Frota - Relatório de Abastecimento e Custos")
@@ -344,6 +423,8 @@ else:
         for col in num_cols:
             if col in df_clean.columns: df_clean[col] = df_clean[col].apply(clean_num)
         df_clean['Data'] = pd.to_datetime(df_clean['Data'], format='%d/%m/%Y', errors='coerce')
+        if 'Descrição' in df_clean.columns:
+            df_clean['Descrição'] = df_clean['Descrição'].apply(padronizar_nome_motorista)
         return df_clean
 
     if uploaded_files_custos:
